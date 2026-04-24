@@ -10,7 +10,14 @@ router.post("/submit", uploadFields, submit);
 
 
 // Submit  in onego
-router.post("/submitandpay", submitWithAgreement);
+// router.post("/submitandpay", submitWithAgreement);
+
+// ✅ Submit in one go
+router.post("/submitandpay", (req, res, next) => {
+  console.log("🔥 submitandpay HIT");
+  next();
+}, submitWithAgreement);
+
 
 
 // GET – admin panel list
