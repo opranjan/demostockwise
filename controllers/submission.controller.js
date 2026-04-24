@@ -7,6 +7,8 @@ const { sendEmail } = require("../services/email.service");
 const { welcomeEmailTemplate } = require("../templates/welcomeEmail");
 const { generateInvoiceBuffer } = require("../services/invoice.service");
 const { generateUserAgreementBuffer } = require("../services/agreement.service");
+const geoip = require("geoip-lite");
+
 
 const allowedMime = new Set(["application/pdf", "image/png", "image/jpeg"]);
 
@@ -106,35 +108,34 @@ async function submit(req, res) {
 
 
 
-
 async function submitWithAgreement(req, res) {
   try {
     const files = req.files || {};
     const panFile = files.panDoc?.[0];
     const aadharFile = files.aadharDoc?.[0];
 
-    const { fullName, email, mobile, signatureBase64 } = req.body;
+    const {
+      fullName,
+      email,
+      mobile,
+      signatureBase64,
+      location,
+      lat,
+      lng,
+    } = req.body;
 
-    // ✅ ONLY REQUIRED VALIDATION
+    // ✅ VALIDATION (ONLY 3 REQUIRED)
     const errors = [];
 
-    if (!fullName) {
-      errors.push({ field: "fullName", message: "Name is required" });
-    }
-
-    if (!email) {
-      errors.push({ field: "email", message: "Email is required" });
-    }
-
-    if (!mobile) {
-      errors.push({ field: "mobile", message: "Mobile is required" });
-    }
+    if (!fullName) errors.push({ field: "fullName", message: "Name is required" });
+    if (!email) errors.push({ field: "email", message: "Email is required" });
+    if (!mobile) errors.push({ field: "mobile", message: "Mobile is required" });
 
     if (errors.length) {
       return res.status(400).json({ ok: false, errors });
     }
 
-    // ✅ OPTIONAL uploads
+    // ✅ OPTIONAL FILE UPLOAD
     let panDocMeta = null;
     let aadharDocMeta = null;
 
@@ -152,13 +153,21 @@ async function submitWithAgreement(req, res) {
       );
     }
 
-    // ✅ Get IP + location (safe)
-    const clientIp =
+    // ✅ CLIENT IP (optional fallback)
+    let clientIp =
       req.headers["x-forwarded-for"]?.split(",")[0] || req.ip;
 
-    const geo = require("geoip-lite").lookup(clientIp);
+    if (clientIp === "::1") clientIp = "127.0.0.1";
+    if (clientIp?.startsWith("::ffff:")) {
+      clientIp = clientIp.replace("::ffff:", "");
+    }
 
-    // ✅ Save (ALL optional except 3 fields)
+    // ✅ FORMAT LOCATION (from frontend)
+    const formattedLocation = location
+      ? `${location} | Lat: ${lat ?? "NA"}, Lng: ${lng ?? "NA"}`
+      : `IP: ${clientIp}`;
+
+    // ✅ SAVE DATA
     const submission = await Submission.create({
       fullName,
       email,
@@ -175,15 +184,17 @@ async function submitWithAgreement(req, res) {
       panDoc: panDocMeta,
       aadharDoc: aadharDocMeta,
 
-      // agreement optional
+      // agreement
       signature: signatureBase64,
       agreementAccepted: !!signatureBase64,
       agreementAcceptedAt: signatureBase64 ? new Date() : null,
       agreementIp: clientIp,
-      location: `${geo?.city || "Unknown"}, ${geo?.country || "Unknown"}`,
+
+      // ✅ LOCATION SAVED HERE
+      location: formattedLocation,
     });
 
-    // ✅ Generate PDFs only if needed
+    // ✅ GENERATE PDFs
     let invoiceBuffer = null;
     let agreementBuffer = null;
 
@@ -192,45 +203,65 @@ async function submitWithAgreement(req, res) {
     }
 
     if (signatureBase64) {
-      agreementBuffer = await generateUserAgreementBuffer(submission, clientIp);
+      agreementBuffer = await generateUserAgreementBuffer(
+        submission,
+        clientIp
+      );
     }
 
-    // ✅ Send email safely
-    await sendEmail({
-      to: submission.email,
-      cc: process.env.EMAIL_CC,
-      subject: "Welcome",
-      html: "<h3>Welcome!</h3>",
-      attachments: [
-        ...(invoiceBuffer
-          ? [
-              {
-                filename: `Invoice_${submission.txnId}.pdf`,
-                content: invoiceBuffer,
-              },
-            ]
-          : []),
-        ...(agreementBuffer
-          ? [
-              {
-                filename: `Agreement_${submission.txnId || "user"}.pdf`,
-                content: agreementBuffer,
-              },
-            ]
-          : []),
-      ],
+    // ✅ EMAIL TEMPLATE
+    const emailHtml = welcomeEmailTemplate({
+      name: submission.fullName,
+      email: submission.email,
+      mobile: submission.mobile,
+      amount: submission.amount || 0,
+      startDate: submission.paymentDate
+        ? new Date(submission.paymentDate).toLocaleDateString("en-IN")
+        : new Date().toLocaleDateString("en-IN"),
+      invoiceNo: submission.txnId ? `INV-${submission.txnId}` : "N/A",
+
+      // ✅ PASS LOCATION TO EMAIL
+      location: submission.location,
     });
+
+    // ✅ SEND INVOICE EMAIL
+    if (invoiceBuffer) {
+      await sendEmail({
+        to: submission.email,
+        cc: process.env.EMAIL_CC,
+        subject: "Welcome Onboard – Invoice",
+        html: emailHtml,
+        attachment: invoiceBuffer,
+        filename: `Invoice_${submission.txnId}.pdf`,
+      });
+    }
+
+    // ✅ SEND AGREEMENT EMAIL
+    if (agreementBuffer) {
+      await sendEmail({
+        to: submission.email,
+        cc: process.env.EMAIL_CC,
+        subject: "Agreement",
+        html: emailHtml,
+        attachment: agreementBuffer,
+        filename: `Agreement_${submission.txnId || "user"}.pdf`,
+      });
+    }
 
     return res.status(201).json({
       ok: true,
-      message: "Submission saved successfully",
+      message: "Submission saved & email(s) sent successfully",
       data: submission,
     });
   } catch (err) {
     console.error("❌ Combined error:", err);
-    return res.status(500).json({ ok: false, message: "Server error" });
+    return res.status(500).json({
+      ok: false,
+      message: "Server error",
+    });
   }
 }
+
 
 
 
