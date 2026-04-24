@@ -10,7 +10,7 @@ router.post("/submit", uploadFields, submit);
 
 
 // Submit  in onego
-router.post("/submitandpay", uploadFields, submitWithAgreement);
+router.post("/submitandpay", submitWithAgreement);
 
 
 // GET – admin panel list
