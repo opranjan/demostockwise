@@ -198,7 +198,7 @@ async function submitWithAgreement(req, res) {
     let invoiceBuffer = null;
     let agreementBuffer = null;
 
-    if (submission.amount && submission.txnId) {
+    if (submission.amount && submission.txnId) {   
       invoiceBuffer = await generateInvoiceBuffer(submission);
     }
 
@@ -279,6 +279,8 @@ async function getSubmissions(req, res) {
       search = "",
       fromDate,
       toDate,
+      includeDeleted = "false",
+      onlyDeleted = "false",
     } = req.query;
 
     const skip = (page - 1) * limit;
@@ -304,9 +306,18 @@ async function getSubmissions(req, res) {
       if (toDate) dateQuery.paymentDate.$lte = new Date(toDate);
     }
 
+    // 🗑️ Soft-delete filter
+    const deletedQuery =
+      onlyDeleted === "true"
+        ? { isDeleted: true }
+        : includeDeleted === "true"
+        ? {}
+        : { isDeleted: { $ne: true } };
+
     const query = {
       ...searchQuery,
       ...dateQuery,
+      ...deletedQuery,
     };
 
     const [data, total] = await Promise.all([
@@ -341,8 +352,14 @@ async function getSubmissions(req, res) {
 async function getSubmissionById(req, res) {
   try {
     const { id } = req.params;
+    const { includeDeleted = "false" } = req.query;
 
-    const submission = await Submission.findById(id);
+    const query =
+      includeDeleted === "true"
+        ? { _id: id }
+        : { _id: id, isDeleted: { $ne: true } };
+
+    const submission = await Submission.findOne(query);
     if (!submission) {
       return res.status(404).json({
         ok: false,
@@ -363,4 +380,76 @@ async function getSubmissionById(req, res) {
   }
 }
 
-module.exports = { uploadFields, submit,submitWithAgreement, getSubmissions, getSubmissionById };
+// Soft delete (mark as deleted, do not remove)
+async function softDeleteSubmission(req, res) {
+  try {
+    const { id } = req.params;
+
+    const submission = await Submission.findOneAndUpdate(
+      { _id: id, isDeleted: { $ne: true } },
+      { $set: { isDeleted: true, deletedAt: new Date() } },
+      { new: true }
+    );
+
+    if (!submission) {
+      return res.status(404).json({
+        ok: false,
+        message: "Submission not found or already deleted",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      message: "Submission deleted successfully",
+      data: submission,
+    });
+  } catch (err) {
+    console.error("❌ Soft delete error:", err);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to delete submission",
+    });
+  }
+}
+
+// Restore a soft-deleted submission
+async function restoreSubmission(req, res) {
+  try {
+    const { id } = req.params;
+
+    const submission = await Submission.findOneAndUpdate(
+      { _id: id, isDeleted: true },
+      { $set: { isDeleted: false, deletedAt: null } },
+      { new: true }
+    );
+
+    if (!submission) {
+      return res.status(404).json({
+        ok: false,
+        message: "Deleted submission not found",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      message: "Submission restored successfully",
+      data: submission,
+    });
+  } catch (err) {
+    console.error("❌ Restore error:", err);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to restore submission",
+    });
+  }
+}
+
+module.exports = {
+  uploadFields,
+  submit,
+  submitWithAgreement,
+  getSubmissions,
+  getSubmissionById,
+  softDeleteSubmission,
+  restoreSubmission,
+};

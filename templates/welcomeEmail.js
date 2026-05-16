@@ -1,5 +1,12 @@
 const COMPANY = require("../config/company");
 
+
+
+{/* <a href="${agreementUrl}" 
+           style="background-color:#1A2C80; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display:inline-block; margin-top:10px;">
+           Review & Accept Terms & Conditions
+        </a> */}
+
 function welcomeEmailTemplate({
   name,
   email,
@@ -134,10 +141,7 @@ function welcomeEmailTemplate({
       <div style="margin-top:25px; background-color:#f7f9fc; padding:20px; border-radius:6px; text-align:center;">
         <h3 style="color:#1A2C80;">Terms & Conditions Agreement</h3>
         <p>Please read the attached Terms & Conditions carefully and confirm acceptance.</p>
-        <a href="${agreementUrl}" 
-           style="background-color:#1A2C80; color:white; padding:10px 20px; text-decoration:none; border-radius:5px; display:inline-block; margin-top:10px;">
-           Review & Accept Terms & Conditions
-        </a>
+        
       </div>
 
       <p style="margin-top:25px;">Warm regards,</p>

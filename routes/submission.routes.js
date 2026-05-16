@@ -1,5 +1,13 @@
 const router = require("express").Router();
-const { uploadFields, submit,submitWithAgreement, getSubmissions, getSubmissionById } = require("../controllers/submission.controller");
+const {
+  uploadFields,
+  submit,
+  submitWithAgreement,
+  getSubmissions,
+  getSubmissionById,
+  softDeleteSubmission,
+  restoreSubmission,
+} = require("../controllers/submission.controller");
 
 
 // Health
@@ -25,6 +33,12 @@ router.get("/userkyc/", getSubmissions);
 
 // GET – single submission
 router.get("/userkyc/:id", getSubmissionById);
+
+// Soft delete a submission
+router.delete("/userkyc/:id", softDeleteSubmission);
+
+// Restore a soft-deleted submission
+router.patch("/userkyc/:id/restore", restoreSubmission);
 
 
 

@@ -36,6 +36,9 @@ const submissionSchema = new mongoose.Schema(
     signature: { type: String },
     location: { type: String },
 
+    isDeleted: { type: Boolean, default: false, index: true },
+    deletedAt: { type: Date, default: null },
+
     createdAt: { type: Date, default: Date.now },
   },
   { collection: "submissions" }
