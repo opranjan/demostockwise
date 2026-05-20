@@ -128,21 +128,6 @@ function welcomeEmailTemplate({
 
     
 
-      <div style="margin-top:25px;">
-        <h3>Your Subscription Details</h3>
-        <table style="width:100%; border-collapse:collapse; margin-top:10px;">
-          <tr><td>Amount Paid:</td><td><strong>₹${amount.toFixed(2)}</strong></td></tr>
-          <tr><td>Start Date:</td><td><strong>${startDate}</strong></td></tr>
-          
-          <tr><td>Invoice Number:</td><td><strong>${invoiceNo}</strong></td></tr>
-        </table>
-      </div>
-
-      <div style="margin-top:25px; background-color:#f7f9fc; padding:20px; border-radius:6px; text-align:center;">
-        <h3 style="color:#1A2C80;">Terms & Conditions Agreement</h3>
-        <p>Please read the attached Terms & Conditions carefully and confirm acceptance.</p>
-        
-      </div>
 
       <p style="margin-top:25px;">Warm regards,</p>
       <p><strong>${COMPANY.NAME}</strong><br>
@@ -157,5 +142,27 @@ function welcomeEmailTemplate({
 }
 
 module.exports = { welcomeEmailTemplate };
+
+
+
+
+
+
+
+      // <div style="margin-top:25px;">
+      //   <h3>Your Subscription Details</h3>
+      //   <table style="width:100%; border-collapse:collapse; margin-top:10px;">
+      //     <tr><td>Amount Paid:</td><td><strong>₹${amount.toFixed(2)}</strong></td></tr>
+      //     <tr><td>Start Date:</td><td><strong>${startDate}</strong></td></tr>
+          
+      //     <tr><td>Invoice Number:</td><td><strong>${invoiceNo}</strong></td></tr>
+      //   </table>
+      // </div>
+
+      // <div style="margin-top:25px; background-color:#f7f9fc; padding:20px; border-radius:6px; text-align:center;">
+      //   <h3 style="color:#1A2C80;">Terms & Conditions Agreement</h3>
+      //   <p>Please read the attached Terms & Conditions carefully and confirm acceptance.</p>
+        
+      // </div>
 
 
