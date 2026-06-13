@@ -12,6 +12,21 @@ const geoip = require("geoip-lite");
 
 const allowedMime = new Set(["application/pdf", "image/png", "image/jpeg"]);
 
+// The web KYC form posts the PAN image as a base64 data URL (JSON), not a
+// multipart file. Convert "data:image/png;base64,...." into a Buffer so it can
+// be pushed to Cloudinary the same way an uploaded file is.
+function bufferFromDataUrl(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== "string") return null;
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  const base64 = match ? match[2] : dataUrl;
+  try {
+    const buf = Buffer.from(base64, "base64");
+    return buf.length ? buf : null;
+  } catch {
+    return null;
+  }
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -136,6 +151,8 @@ async function submitWithAgreement(req, res) {
     }
 
     // ✅ OPTIONAL FILE UPLOAD
+    // Accept the PAN/Aadhaar doc either as a multipart file (agent panel) or as
+    // a base64 data URL (web KYC form sends panCardImageBase64 in JSON).
     let panDocMeta = null;
     let aadharDocMeta = null;
 
@@ -144,6 +161,14 @@ async function submitWithAgreement(req, res) {
         panFile.buffer,
         `${Date.now()}-${fullName}-PAN-${panFile.originalname}`
       );
+    } else if (req.body.panCardImageBase64) {
+      const panBuffer = bufferFromDataUrl(req.body.panCardImageBase64);
+      if (panBuffer) {
+        panDocMeta = await uploadToCloudinary(
+          panBuffer,
+          `${Date.now()}-${fullName}-PAN`
+        );
+      }
     }
 
     if (aadharFile) {
@@ -151,6 +176,14 @@ async function submitWithAgreement(req, res) {
         aadharFile.buffer,
         `${Date.now()}-${fullName}-AADHAR-${aadharFile.originalname}`
       );
+    } else if (req.body.aadharImageBase64) {
+      const aadharBuffer = bufferFromDataUrl(req.body.aadharImageBase64);
+      if (aadharBuffer) {
+        aadharDocMeta = await uploadToCloudinary(
+          aadharBuffer,
+          `${Date.now()}-${fullName}-AADHAR`
+        );
+      }
     }
 
     // ✅ CLIENT IP (optional fallback)
@@ -173,8 +206,8 @@ async function submitWithAgreement(req, res) {
       email,
       mobile,
 
-      // optional fields
-      pan: req.body.pan,
+      // optional fields — web KYC sends "panCard", agent panel sends "pan"
+      pan: (req.body.pan || req.body.panCard || "").toUpperCase() || undefined,
       dob: req.body.dob,
       amount: req.body.amount ? parseFloat(req.body.amount) : undefined,
       paymentDate: req.body.paymentDate,
@@ -380,6 +413,90 @@ async function getSubmissionById(req, res) {
   }
 }
 
+// Update an existing submission (Admin Panel edit)
+// Accepts JSON: editable text fields + optional base64 docs (panCardImageBase64,
+// aadharImageBase64), or multipart files (panDoc, aadharDoc).
+async function updateSubmission(req, res) {
+  try {
+    const { id } = req.params;
+
+    const submission = await Submission.findOne({
+      _id: id,
+      isDeleted: { $ne: true },
+    });
+    if (!submission) {
+      return res.status(404).json({ ok: false, message: "Submission not found" });
+    }
+
+    const b = req.body;
+
+    // Text fields — only overwrite when the key was actually sent
+    if (b.fullName !== undefined) submission.fullName = b.fullName;
+    if (b.email !== undefined) submission.email = b.email;
+    if (b.mobile !== undefined) submission.mobile = b.mobile;
+
+    const panValue = b.pan ?? b.panCard;
+    if (panValue !== undefined) {
+      submission.pan = String(panValue).toUpperCase() || undefined;
+    }
+
+    if (b.dob !== undefined) submission.dob = b.dob;
+    if (b.location !== undefined) submission.location = b.location;
+    if (b.paymentDate !== undefined) submission.paymentDate = b.paymentDate;
+    if (b.txnId !== undefined) submission.txnId = b.txnId;
+    if (b.agentName !== undefined) submission.agentName = b.agentName;
+    if (b.amount !== undefined) {
+      submission.amount = b.amount === "" ? undefined : parseFloat(b.amount);
+    }
+
+    // Optional document replacement — file upload or base64 data URL
+    const files = req.files || {};
+    const panFile = files.panDoc?.[0];
+    const aadharFile = files.aadharDoc?.[0];
+
+    if (panFile) {
+      submission.panDoc = await uploadToCloudinary(
+        panFile.buffer,
+        `${Date.now()}-${submission.fullName}-PAN-${panFile.originalname}`
+      );
+    } else if (b.panCardImageBase64) {
+      const panBuffer = bufferFromDataUrl(b.panCardImageBase64);
+      if (panBuffer) {
+        submission.panDoc = await uploadToCloudinary(
+          panBuffer,
+          `${Date.now()}-${submission.fullName}-PAN`
+        );
+      }
+    }
+
+    if (aadharFile) {
+      submission.aadharDoc = await uploadToCloudinary(
+        aadharFile.buffer,
+        `${Date.now()}-${submission.fullName}-AADHAR-${aadharFile.originalname}`
+      );
+    } else if (b.aadharImageBase64) {
+      const aadharBuffer = bufferFromDataUrl(b.aadharImageBase64);
+      if (aadharBuffer) {
+        submission.aadharDoc = await uploadToCloudinary(
+          aadharBuffer,
+          `${Date.now()}-${submission.fullName}-AADHAR`
+        );
+      }
+    }
+
+    await submission.save();
+
+    return res.status(200).json({
+      ok: true,
+      message: "Submission updated successfully",
+      data: submission,
+    });
+  } catch (err) {
+    console.error("❌ Update error:", err);
+    return res.status(500).json({ ok: false, message: "Failed to update submission" });
+  }
+}
+
 // Soft delete (mark as deleted, do not remove)
 async function softDeleteSubmission(req, res) {
   try {
@@ -450,6 +567,7 @@ module.exports = {
   submitWithAgreement,
   getSubmissions,
   getSubmissionById,
+  updateSubmission,
   softDeleteSubmission,
   restoreSubmission,
 };
