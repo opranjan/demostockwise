@@ -27,7 +27,7 @@ async function generateUserAgreementBuffer(submission, ipAddress ) {
     const normal = 11;
     const leftMargin = 60;
     const width = 480;
-    const agreementDate = formatDate(new Date());
+    const agreementDate = formatDate(submission.agreementAcceptedAt || submission.createdAt || new Date());
     const { fullName, email, mobile ,location } = submission;
 
     // ================= HEADER (only first page) =================
