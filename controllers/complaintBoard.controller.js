@@ -1,8 +1,10 @@
 // controllers/complaintBoard.controller.js
 const ComplaintBoard = require("../models/ComplaintBoard");
 
-// Sanitize the three table arrays coming from the panel so we never store
-// stray fields and always coerce numbers.
+const BOARD_TYPES = ComplaintBoard.BOARD_TYPES; // ["complaint","monthly","annual"]
+
+// Sanitize rows based on board type so we never store stray fields and always
+// coerce numbers.
 function cleanComplaintRows(rows) {
   if (!Array.isArray(rows)) return [];
   return rows.map((r, i) => ({
@@ -29,37 +31,55 @@ function cleanTrendRows(rows) {
   }));
 }
 
-// GET /api/complaint-board  → latest (current) board, for the public site
+function cleanRows(boardType, rows) {
+  return boardType === "complaint" ? cleanComplaintRows(rows) : cleanTrendRows(rows);
+}
+
+// GET /api/complaint-board  → current version of all three tables (public site).
+// Returns { complaint, monthly, annual } where each is the current doc or null.
 async function getCurrentBoard(_req, res) {
   try {
-    const board =
-      (await ComplaintBoard.findOne({ isCurrent: true }).sort({ version: -1 })) ||
-      (await ComplaintBoard.findOne().sort({ version: -1 }));
+    const docs = await Promise.all(
+      BOARD_TYPES.map(async (boardType) => {
+        const current =
+          (await ComplaintBoard.findOne({ boardType, isCurrent: true }).sort({ version: -1 })) ||
+          (await ComplaintBoard.findOne({ boardType }).sort({ version: -1 }));
+        return [boardType, current];
+      })
+    );
 
-    if (!board) {
-      return res.status(200).json({ ok: true, data: null });
-    }
-    return res.status(200).json({ ok: true, data: board });
+    const data = {};
+    docs.forEach(([boardType, doc]) => {
+      data[boardType] = doc;
+    });
+
+    return res.status(200).json({ ok: true, data });
   } catch (err) {
     console.error("❌ getCurrentBoard error:", err);
     return res.status(500).json({ ok: false, message: "Failed to fetch complaint board" });
   }
 }
 
-// GET /api/complaint-board/history?page=&limit=  → all versions (panel)
+// GET /api/complaint-board/history?type=monthly&page=&limit=  → versions of ONE table
 async function getHistory(req, res) {
   try {
+    const boardType = String(req.query.type || "");
+    if (!BOARD_TYPES.includes(boardType)) {
+      return res.status(400).json({ ok: false, message: "Invalid or missing ?type" });
+    }
+
     const page = Math.max(Number(req.query.page) || 1, 1);
-    const limit = Math.max(Number(req.query.limit) || 10, 1);
+    const limit = Math.max(Number(req.query.limit) || 50, 1);
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
-      ComplaintBoard.find().sort({ version: -1 }).skip(skip).limit(limit),
-      ComplaintBoard.countDocuments(),
+      ComplaintBoard.find({ boardType }).sort({ version: -1 }).skip(skip).limit(limit),
+      ComplaintBoard.countDocuments({ boardType }),
     ]);
 
     return res.status(200).json({
       ok: true,
+      type: boardType,
       page,
       limit,
       total,
@@ -84,24 +104,26 @@ async function getBoardById(req, res) {
   }
 }
 
-// POST /api/complaint-board  → publish a new version (keeps previous as history)
+// POST /api/complaint-board  → publish a new version of ONE table.
+// Body: { boardType, periodLabel, rows, updatedBy }
 async function createBoardVersion(req, res) {
   try {
-    const { periodLabel, complaintBoardData, monthlyTrendData, annualTrendData, updatedBy } =
-      req.body || {};
+    const { boardType, periodLabel, rows, updatedBy } = req.body || {};
+    if (!BOARD_TYPES.includes(boardType)) {
+      return res.status(400).json({ ok: false, message: "Invalid or missing boardType" });
+    }
 
-    const last = await ComplaintBoard.findOne().sort({ version: -1 });
+    const last = await ComplaintBoard.findOne({ boardType }).sort({ version: -1 });
     const nextVersion = last ? last.version + 1 : 1;
 
-    // Demote any previously-current version.
-    await ComplaintBoard.updateMany({ isCurrent: true }, { $set: { isCurrent: false } });
+    // Demote the previously-current version of THIS table only.
+    await ComplaintBoard.updateMany({ boardType, isCurrent: true }, { $set: { isCurrent: false } });
 
     const board = await ComplaintBoard.create({
+      boardType,
       version: nextVersion,
       periodLabel: String(periodLabel ?? ""),
-      complaintBoardData: cleanComplaintRows(complaintBoardData),
-      monthlyTrendData: cleanTrendRows(monthlyTrendData),
-      annualTrendData: cleanTrendRows(annualTrendData),
+      rows: cleanRows(boardType, rows),
       updatedBy: String(updatedBy ?? ""),
       isCurrent: true,
     });
@@ -116,21 +138,16 @@ async function createBoardVersion(req, res) {
 // PUT /api/complaint-board/:id  → edit a version in place (fix a typo, etc.)
 async function updateBoard(req, res) {
   try {
-    const { periodLabel, complaintBoardData, monthlyTrendData, annualTrendData, updatedBy } =
-      req.body || {};
+    const existing = await ComplaintBoard.findById(req.params.id);
+    if (!existing) return res.status(404).json({ ok: false, message: "Version not found" });
 
+    const { periodLabel, rows, updatedBy } = req.body || {};
     const update = {};
     if (periodLabel !== undefined) update.periodLabel = String(periodLabel);
     if (updatedBy !== undefined) update.updatedBy = String(updatedBy);
-    if (complaintBoardData !== undefined)
-      update.complaintBoardData = cleanComplaintRows(complaintBoardData);
-    if (monthlyTrendData !== undefined)
-      update.monthlyTrendData = cleanTrendRows(monthlyTrendData);
-    if (annualTrendData !== undefined)
-      update.annualTrendData = cleanTrendRows(annualTrendData);
+    if (rows !== undefined) update.rows = cleanRows(existing.boardType, rows);
 
     const board = await ComplaintBoard.findByIdAndUpdate(req.params.id, update, { new: true });
-    if (!board) return res.status(404).json({ ok: false, message: "Version not found" });
     return res.status(200).json({ ok: true, data: board });
   } catch (err) {
     console.error("❌ updateBoard error:", err);
@@ -144,7 +161,11 @@ async function setCurrentBoard(req, res) {
     const board = await ComplaintBoard.findById(req.params.id);
     if (!board) return res.status(404).json({ ok: false, message: "Version not found" });
 
-    await ComplaintBoard.updateMany({ isCurrent: true }, { $set: { isCurrent: false } });
+    // Demote others of the SAME table only.
+    await ComplaintBoard.updateMany(
+      { boardType: board.boardType, isCurrent: true },
+      { $set: { isCurrent: false } }
+    );
     board.isCurrent = true;
     await board.save();
 
@@ -161,9 +182,9 @@ async function deleteBoard(req, res) {
     const board = await ComplaintBoard.findByIdAndDelete(req.params.id);
     if (!board) return res.status(404).json({ ok: false, message: "Version not found" });
 
-    // If we deleted the current version, promote the newest remaining one.
+    // If we deleted the current version, promote the newest remaining one of the same table.
     if (board.isCurrent) {
-      const latest = await ComplaintBoard.findOne().sort({ version: -1 });
+      const latest = await ComplaintBoard.findOne({ boardType: board.boardType }).sort({ version: -1 });
       if (latest) {
         latest.isCurrent = true;
         await latest.save();

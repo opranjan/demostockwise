@@ -1,19 +1,20 @@
 // seed-complaint-board.js
 // One-time seed: stores the data currently hardcoded on the frontend
-// /complaint-board page as version 1. Run once:  node seed-complaint-board.js
+// /complaint-board page as version 1 of EACH table (complaint / monthly / annual).
+// Run once:  node seed-complaint-board.js
 require("dotenv").config();
 const mongoose = require("mongoose");
 const { connectDB } = require("./utils/db");
 const ComplaintBoard = require("./models/ComplaintBoard");
 
-const complaintBoardData = [
+const complaintRows = [
   { srNo: 1, receivedFrom: "Directly from Investors", pendingLastMonth: 0, received: 0, receivedStar: 0, totalPending: 0, pendingOver3Months: 0, avgResolutionTime: "N/A" },
   { srNo: 2, receivedFrom: "SEBI (SCORES)", pendingLastMonth: 0, received: 0, receivedStar: 0, totalPending: 0, pendingOver3Months: 0, avgResolutionTime: "N/A" },
   { srNo: 3, receivedFrom: "Other Sources (If any)", pendingLastMonth: 0, received: 0, receivedStar: 0, totalPending: 0, pendingOver3Months: 0, avgResolutionTime: "N/A" },
   { srNo: 4, receivedFrom: "Grand Total", pendingLastMonth: 0, received: 0, receivedStar: 0, totalPending: 0, pendingOver3Months: 0, avgResolutionTime: "N/A" },
 ];
 
-const monthlyTrendData = [
+const monthlyRows = [
   { srNo: 1, period: "JAN-25", carriedForward: 0, received: 0, receivedStar: 0, pending: 0 },
   { srNo: 2, period: "FEB-25", carriedForward: 0, received: 0, receivedStar: 0, pending: 0 },
   { srNo: 3, period: "MAR-25", carriedForward: 0, received: 0, receivedStar: 0, pending: 0 },
@@ -34,33 +35,38 @@ const monthlyTrendData = [
   { srNo: 18, period: "GRAND TOTAL", carriedForward: 0, received: 0, receivedStar: 0, pending: 0 },
 ];
 
-const annualTrendData = [
+const annualRows = [
   { srNo: 1, period: "2024-2025", carriedForward: 0, received: 0, receivedStar: 0, pending: 0 },
   { srNo: 2, period: "2025-2026", carriedForward: 0, received: 2, receivedStar: 2, pending: 0 },
   { srNo: 3, period: "GRAND TOTAL", carriedForward: 0, received: 0, receivedStar: 0, pending: 0 },
 ];
 
+const SEED = [
+  { boardType: "complaint", rows: complaintRows },
+  { boardType: "monthly", rows: monthlyRows },
+  { boardType: "annual", rows: annualRows },
+];
+
 async function run() {
   await connectDB(process.env.MONGO_URI);
 
-  const existing = await ComplaintBoard.findOne().sort({ version: -1 });
-  if (existing) {
-    console.log(`ℹ️  Complaint board already has data (latest version ${existing.version}). Skipping seed.`);
-    await mongoose.disconnect();
-    process.exit(0);
+  for (const { boardType, rows } of SEED) {
+    const existing = await ComplaintBoard.findOne({ boardType }).sort({ version: -1 });
+    if (existing) {
+      console.log(`ℹ️  "${boardType}" already has data (latest version ${existing.version}). Skipping.`);
+      continue;
+    }
+    const doc = await ComplaintBoard.create({
+      boardType,
+      version: 1,
+      periodLabel: "Initial (seeded)",
+      rows,
+      isCurrent: true,
+      updatedBy: "seed",
+    });
+    console.log(`✅ Seeded "${boardType}" as version 1 (id ${doc._id}).`);
   }
 
-  const board = await ComplaintBoard.create({
-    version: 1,
-    periodLabel: "Initial (seeded)",
-    complaintBoardData,
-    monthlyTrendData,
-    annualTrendData,
-    isCurrent: true,
-    updatedBy: "seed",
-  });
-
-  console.log(`✅ Seeded complaint board as version ${board.version} (id ${board._id}).`);
   await mongoose.disconnect();
   process.exit(0);
 }
