@@ -3,7 +3,7 @@ const router = express.Router();
 
 const inquiryController = require("../controllers/inquiry.controller");
 
-router.post("/", inquiryController.createInquiry);
+router.post("/inquiries", inquiryController.createInquiry);
 
 router.get("/", inquiryController.getAllInquiries);
 

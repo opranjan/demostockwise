@@ -29,7 +29,7 @@ app.use("/api", invoiceRoutes);
 app.use("/api", agreementRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api", complaintBoardRoutes);
-app.use("/api/inquiries", inquiryRoutes);
+app.use("/api", inquiryRoutes);
 
 app.use((err, _req, res, _next) => {
   if (err?.name === "MulterError") {
