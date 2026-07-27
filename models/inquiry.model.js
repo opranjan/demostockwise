@@ -28,12 +28,6 @@ const inquirySchema = new mongoose.Schema(
     investment: {
       type: String,
       required: true,
-      enum: [
-        "Below 50,000",
-        "50,000 - 1,00,000",
-        "1,00,000 - 5,00,000",
-        "Above 5,00,000",
-      ],
     },
     segment: {
       type: String,
