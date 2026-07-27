@@ -32,13 +32,13 @@ const inquirySchema = new mongoose.Schema(
     segment: {
       type: String,
       required: true,
-      enum: [
-        "Equity Cash/ Intraday",
-        "F&O",
-        "Commodity",
-        "Currency",
-        "Mutual Funds",
-      ],
+      // enum: [
+      //   "Equity Cash/ Intraday",
+      //   "F&O",
+      //   "Commodity",
+      //   "Currency",
+      //   "Mutual Funds",
+      // ],
     },
     trading: {
       type: String,
